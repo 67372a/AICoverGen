@@ -4,7 +4,7 @@
 - flac output
 - rmvpe+
 - Exposing previously hardcoded compressor and highpass filter for configuration
-- Updating a lot of dependencies to newer versions, no breaking cahanges observed
+- Updating a lot of dependencies to newer versions, no breaking changes observed
 
 ## Fork Enhancements Under Consideration
 - Ability to select extraction models used and change settings related to them
