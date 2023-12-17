@@ -1,3 +1,18 @@
+## Fork Enhancements Implemented
+- Autotune
+- Min and max pitch
+- flac output
+- rmvpe+
+- Exposing previously hardcoded compressor and highpass filter for configuration
+- Updating a lot of dependencies to newer versions, no breaking cahanges observed
+
+## Fork Enhancements Under Consideration
+- Ability to select extraction models used and change settings related to them
+- Saving/loading settings
+- Allow setting device to use (i.e. cuda, cpu), currently hardcoded to cuda:0
+- Formant shift inference audio
+- Noise gate
+
 # AICoverGen
 An autonomous pipeline to create covers with any RVC v2 trained AI voice from YouTube videos or a local audio file. For developers who may want to add a singing functionality into their AI assistant/chatbot/vtuber, or for people who want to hear their favourite characters sing their favourite song.
 
