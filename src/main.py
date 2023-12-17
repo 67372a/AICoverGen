@@ -190,7 +190,7 @@ def preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type,
     return orig_song_path, vocals_path, instrumentals_path, main_vocals_path, backup_vocals_path, main_vocals_dereverb_path
 
 
-def voice_change(voice_model, vocals_path, output_path, pitch_change, f0_method, index_rate, filter_radius, rms_mix_rate, protect, crepe_hop_length, is_webui):
+def voice_change(voice_model, vocals_path, output_path, pitch_change, f0_method, index_rate, filter_radius, rms_mix_rate, protect, crepe_hop_length, f0_autotune, f0_min, f0_max, is_webui):
     rvc_model_path, rvc_index_path = get_rvc_model(voice_model, is_webui)
     device = 'cuda:0'
     config = Config(device, True)
@@ -198,22 +198,28 @@ def voice_change(voice_model, vocals_path, output_path, pitch_change, f0_method,
     cpt, version, net_g, tgt_sr, vc = get_vc(device, config.is_half, config, rvc_model_path)
 
     # convert main vocals
-    rvc_infer(rvc_index_path, index_rate, vocals_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model)
+    rvc_infer(rvc_index_path, index_rate, vocals_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, f0_autotune, f0_min, f0_max)
     del hubert_model, cpt
     gc.collect()
 
 
-def add_audio_effects(audio_path, reverb_rm_size, reverb_wet, reverb_dry, reverb_damping):
+def add_audio_effects(audio_path, reverb_rm_size, reverb_wet, reverb_dry, reverb_damping, highpass_filter=True, highpass_filter_cutoff_frequency_hz=50, compressor=True, compressor_threshold_db=-15, compressor_ratio=4):
     output_path = f'{os.path.splitext(audio_path)[0]}_mixed.wav'
-
+    
     # Initialize audio effects plugins
-    board = Pedalboard(
-        [
-            HighpassFilter(),
-            Compressor(ratio=4, threshold_db=-15),
-            Reverb(room_size=reverb_rm_size, dry_level=reverb_dry, wet_level=reverb_wet, damping=reverb_damping)
-         ]
-    )
+    effects = []
+    
+    print(f'highpassFilter={compressor} cutoff={highpass_filter_cutoff_frequency_hz}')
+    if highpass_filter == True:
+        effects.append(HighpassFilter(highpass_filter_cutoff_frequency_hz))
+        
+    print(f'compressor={compressor} threshold={compressor_threshold_db} ratio={compressor_ratio}')
+    if compressor == True:
+        effects.append(Compressor(ratio=compressor_ratio, threshold_db=compressor_threshold_db))
+    
+    effects.append(Reverb(room_size=reverb_rm_size, dry_level=reverb_dry, wet_level=reverb_wet, damping=reverb_damping))
+
+    board = Pedalboard(effects)
 
     with AudioFile(audio_path) as f:
         with AudioFile(output_path, 'w', f.samplerate, f.num_channels) as o:
@@ -236,8 +242,9 @@ def combine_audio(audio_paths, output_path, main_gain, backup_gain, inst_gain, o
 def song_cover_pipeline(song_input, voice_model, pitch_change, keep_files,
                         is_webui=0, main_gain=0, backup_gain=0, inst_gain=0, index_rate=0.5, filter_radius=3,
                         rms_mix_rate=0.25, f0_method='rmvpe', crepe_hop_length=128, protect=0.33, pitch_change_all=0,
-                        reverb_rm_size=0.15, reverb_wet=0.2, reverb_dry=0.8, reverb_damping=0.7, output_format='mp3',
-                        progress=gr.Progress()):
+                        reverb_rm_size=0.15, reverb_wet=0.2, reverb_dry=0.8, reverb_damping=0.7, output_format='mp3', 
+                        f0_autotune=False, f0_min=50, f0_max=1100, highpass_filter=True, highpass_filter_cutoff_frequency_hz=50, 
+                        compressor=True, compressor_threshold_db=-15, compressor_ratio=4, progress=gr.Progress()):
     try:
         if not song_input or not voice_model:
             raise_exception('Ensure that the song input field and voice model field is filled.', is_webui)
@@ -283,15 +290,15 @@ def song_cover_pipeline(song_input, voice_model, pitch_change, keep_files,
                 orig_song_path, instrumentals_path, main_vocals_dereverb_path, backup_vocals_path = paths
 
         pitch_change = pitch_change * 12 + pitch_change_all
-        ai_vocals_path = os.path.join(song_dir, f'{os.path.splitext(os.path.basename(orig_song_path))[0]}_{voice_model}_p{pitch_change}_i{index_rate}_fr{filter_radius}_rms{rms_mix_rate}_pro{protect}_{f0_method}{"" if f0_method != "mangio-crepe" else f"_{crepe_hop_length}"}.wav')
+        ai_vocals_path = os.path.join(song_dir, f'{os.path.splitext(os.path.basename(orig_song_path))[0]}_{voice_model}_p{pitch_change}_i{index_rate}_fr{filter_radius}_rms{rms_mix_rate}_pro{protect}_{f0_method}_at{f0_autotune}{"" if f0_method != "mangio-crepe" else f"_chl{crepe_hop_length}"}{"" if f0_method != "rmvpe" else f"_minp{f0_min}_maxp{f0_max}"}.wav')
         ai_cover_path = os.path.join(song_dir, f'{os.path.splitext(os.path.basename(orig_song_path))[0]} ({voice_model} Ver).{output_format}')
 
         if not os.path.exists(ai_vocals_path):
             display_progress('[~] Converting voice using RVC...', 0.5, is_webui, progress)
-            voice_change(voice_model, main_vocals_dereverb_path, ai_vocals_path, pitch_change, f0_method, index_rate, filter_radius, rms_mix_rate, protect, crepe_hop_length, is_webui)
+            voice_change(voice_model, main_vocals_dereverb_path, ai_vocals_path, pitch_change, f0_method, index_rate, filter_radius, rms_mix_rate, protect, crepe_hop_length, f0_autotune, f0_min, f0_max, is_webui)
 
         display_progress('[~] Applying audio effects to Vocals...', 0.8, is_webui, progress)
-        ai_vocals_mixed_path = add_audio_effects(ai_vocals_path, reverb_rm_size, reverb_wet, reverb_dry, reverb_damping)
+        ai_vocals_mixed_path = add_audio_effects(ai_vocals_path, reverb_rm_size, reverb_wet, reverb_dry, reverb_damping, highpass_filter, highpass_filter_cutoff_frequency_hz, compressor, compressor_threshold_db, compressor_ratio)
 
         if pitch_change_all != 0:
             display_progress('[~] Applying overall pitch change', 0.85, is_webui, progress)
@@ -337,6 +344,9 @@ if __name__ == '__main__':
     parser.add_argument('-rdry', '--reverb-dryness', type=float, default=0.8, help='Reverb dry level between 0 and 1')
     parser.add_argument('-rdamp', '--reverb-damping', type=float, default=0.7, help='Reverb damping between 0 and 1')
     parser.add_argument('-oformat', '--output-format', type=str, default='mp3', help='Output format of audio file. mp3 for smaller file size, wav for best quality')
+    parser.add_argument('-minpitch', '--minimum-pitch', type=int, default=50, help='Specify minimal pitch for inference [HZ]')
+    parser.add_argument('-maxpitch', '--maximum-pitch', type=int, default=1100, help='Specify max pitch for inference [HZ]')
+    parser.add_argument('-autotune', '--autotune', type=argparse.BooleanOptionalAction, help='Enable autotune')
     args = parser.parse_args()
 
     rvc_dirname = args.rvc_dirname
@@ -351,5 +361,7 @@ if __name__ == '__main__':
                                      pitch_change_all=args.pitch_change_all,
                                      reverb_rm_size=args.reverb_size, reverb_wet=args.reverb_wetness,
                                      reverb_dry=args.reverb_dryness, reverb_damping=args.reverb_damping,
-                                     output_format=args.output_format)
+                                     output_format=args.output_format, f0_autotune=args.autotune, f0_min=args.minimum_pitch, 
+                                     f0_max=args.maximum_pitch, highpass_filter=True, highpass_filter_cutoff_frequency_hz=50, 
+                                     compressor=True, compressor_threshold_db=-15, compressor_ratio=4)
     print(f'[+] Cover generated at {cover_path}')

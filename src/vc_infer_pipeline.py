@@ -14,6 +14,7 @@ import torchcrepe
 import traceback
 from scipy import signal
 from torch import Tensor
+import random
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 now_dir = os.path.join(BASE_DIR, 'src')
@@ -78,6 +79,21 @@ class VC(object):
         self.t_center = self.sr * self.x_center  # 查询切点位置
         self.t_max = self.sr * self.x_max  # 免查询时长阈值
         self.device = config.device
+        
+        self.note_dict = [
+            65.41, 69.30, 73.42, 77.78, 82.41, 87.31,
+            92.50, 98.00, 103.83, 110.00, 116.54, 123.47,
+            130.81, 138.59, 146.83, 155.56, 164.81, 174.61,
+            185.00, 196.00, 207.65, 220.00, 233.08, 246.94,
+            261.63, 277.18, 293.66, 311.13, 329.63, 349.23,
+            369.99, 392.00, 415.30, 440.00, 466.16, 493.88,
+            523.25, 554.37, 587.33, 622.25, 659.25, 698.46,
+            739.99, 783.99, 830.61, 880.00, 932.33, 987.77,
+            1046.50, 1108.73, 1174.66, 1244.51, 1318.51, 1396.91,
+            1479.98, 1567.98, 1661.22, 1760.00, 1864.66, 1975.53,
+            2093.00, 2217.46, 2349.32, 2489.02, 2637.02, 2793.83,
+            2959.96, 3135.96, 3322.44, 3520.00, 3729.31, 3951.07
+        ]
 
     # Fork Feature: Get the best torch device to use for f0 algorithms that require a torch device. Will return the type (torch.device)
     def get_optimal_torch_device(self, index: int = 0) -> torch.device:
@@ -269,11 +285,15 @@ class VC(object):
         filter_radius,
         crepe_hop_length,
         inp_f0=None,
+        f0_autotune=False,
+        f0_min=50,
+        f0_max=1100,
     ):
+        print(f'f0_min={f0_min} f0_max={f0_max}')
         global input_audio_path2wav
         time_step = self.window / self.sr * 1000
-        f0_min = 50
-        f0_max = 1100
+        #f0_min = 50
+        #f0_max = 1100
         f0_mel_min = 1127 * np.log(1 + f0_min / 700)
         f0_mel_max = 1127 * np.log(1 + f0_max / 700)
         if f0_method == "pm":
@@ -327,7 +347,14 @@ class VC(object):
                     os.path.join(BASE_DIR, 'rvc_models', 'rmvpe.pt'), is_half=self.is_half, device=self.device
                 )
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
-
+            
+        elif f0_method == "rmvpe+":
+            params = {'x': x, 'p_len': p_len, 'f0_up_key': f0_up_key, 'f0_min': f0_min, 
+                      'f0_max': f0_max, 'time_step': time_step, 'filter_radius': filter_radius, 
+                      'crepe_hop_length': crepe_hop_length, 'model': "full"
+                      }
+            f0 = self.get_pitch_dependant_rmvpe(**params)
+            
         elif "hybrid" in f0_method:
             # Perform hybrid median pitch estimation
             input_audio_path2wav[input_audio_path] = x.astype(np.double)
@@ -342,6 +369,10 @@ class VC(object):
                 crepe_hop_length,
                 time_step,
             )
+            
+        print("f0_autotune=", f0_autotune)
+        if f0_autotune == True:
+            f0 = self.autotune_f0(f0)            
 
         f0 *= pow(2, f0_up_key / 12)
         # with open("test.txt","w")as f:f.write("\n".join([str(i)for i in f0.tolist()]))
@@ -368,6 +399,27 @@ class VC(object):
         f0_coarse = np.rint(f0_mel).astype(np.int)
 
         return f0_coarse, f0bak  # 1-0
+        
+    def get_pitch_dependant_rmvpe(self, x, f0_min=1, f0_max=40000, *args, **kwargs):
+        if not hasattr(self, "model_rmvpe"):
+            from rmvpe import RMVPE
+            
+            self.model_rmvpe = RMVPE(
+                os.path.join(BASE_DIR, 'rvc_models', 'rmvpe.pt'),
+                is_half=self.is_half,
+                device=self.device,
+            )
+            
+        f0 = self.model_rmvpe.infer_from_audio_with_pitch(x, thred=0.03, f0_min=f0_min, f0_max=f0_max)   
+            
+        return f0
+        
+    def autotune_f0(self, f0):
+        autotuned_f0 = []
+        for freq in f0:
+            closest_notes = [x for x in self.note_dict if abs(x - freq) == min(abs(n - freq) for n in self.note_dict)]
+            autotuned_f0.append(random.choice(closest_notes))
+        return np.array(autotuned_f0, np.float64)
 
     def vc(
         self,
@@ -493,6 +545,9 @@ class VC(object):
         protect,
         crepe_hop_length,
         f0_file=None,
+        f0_autotune=False,
+        f0_min=50,
+        f0_max=1100,
     ):
         if (
             file_index != ""
@@ -555,6 +610,9 @@ class VC(object):
                 filter_radius,
                 crepe_hop_length,
                 inp_f0,
+                f0_autotune,
+                f0_min,
+                f0_max,
             )
             pitch = pitch[:p_len]
             pitchf = pitchf[:p_len]

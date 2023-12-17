@@ -152,6 +152,12 @@ def show_hop_slider(pitch_detection_algo):
         return gr.update(visible=True)
     else:
         return gr.update(visible=False)
+        
+def show_pitch_slider(pitch_detection_algo):
+    if pitch_detection_algo != 'rmvpe':
+        return gr.update(visible=True)
+    else:
+        return gr.update(visible=False)
 
 
 if __name__ == '__main__':
@@ -202,9 +208,38 @@ if __name__ == '__main__':
                     rms_mix_rate = gr.Slider(0, 1, value=0.25, label='RMS mix rate', info="Control how much to mimic the original vocal's loudness (0) or a fixed loudness (1)")
                     protect = gr.Slider(0, 0.5, value=0.33, label='Protect rate', info='Protect voiceless consonants and breath sounds. Set to 0.5 to disable.')
                     with gr.Column():
-                        f0_method = gr.Dropdown(['rmvpe', 'mangio-crepe'], value='rmvpe', label='Pitch detection algorithm', info='Best option is rmvpe (clarity in vocals), then mangio-crepe (smoother vocals)')
+                        f0_method = gr.Dropdown(['rmvpe', 'mangio-crepe','rmvpe+'], value='rmvpe', label='Pitch detection algorithm', info='Best option is rmvpe (clarity in vocals), then mangio-crepe (smoother vocals)')
                         crepe_hop_length = gr.Slider(32, 320, value=128, step=1, visible=False, label='Crepe hop length', info='Lower values leads to longer conversions and higher risk of voice cracks, but better pitch accuracy.')
                         f0_method.change(show_hop_slider, inputs=f0_method, outputs=crepe_hop_length)
+                        f0_min = gr.Slider(
+                                    label="Min pitch:",
+                                    info=
+                                        "Specify minimal pitch for inference [HZ]",
+                                    step=1,
+                                    minimum=1,
+                                    scale=0,
+                                    value=50,
+                                    maximum=16000,
+                                    visible=False,
+                                    interactible=True,
+                        )
+                        f0_method.change(show_pitch_slider, inputs=f0_method, outputs=f0_min)
+                        f0_max = gr.Slider(
+                                    label="Max pitch:",
+                                    info="Specify max pitch for inference [HZ]",
+                                    step=1,
+                                    minimum=1,
+                                    scale=0,
+                                    value=1100,
+                                    maximum=16000,
+                                    visible=False,
+                                    interactible=True,
+                        )
+                        f0_method.change(show_pitch_slider, inputs=f0_method, outputs=f0_max)
+                f0_autotune = gr.Checkbox(
+                                    label="Enable autotune",
+                                    value=False,
+                                )
                 keep_files = gr.Checkbox(label='Keep intermediate files', info='Keep all audio files generated in the song_output/id directory, e.g. Isolated Vocals/Instrumentals. Leave unchecked to save space')
 
             with gr.Accordion('Audio mixing options', open=False):
@@ -220,9 +255,47 @@ if __name__ == '__main__':
                     reverb_wet = gr.Slider(0, 1, value=0.2, label='Wetness level', info='Level of AI vocals with reverb')
                     reverb_dry = gr.Slider(0, 1, value=0.8, label='Dryness level', info='Level of AI vocals without reverb')
                     reverb_damping = gr.Slider(0, 1, value=0.7, label='Damping level', info='Absorption of high frequencies in the reverb')
+                    
+                gr.Markdown('### Additional Post Processing on on AI Vocals')
+                with gr.Row():
+                    with gr.Column():
+                        highpass_filter = gr.Checkbox(
+                            label="Enable highpass filter.",
+                            info='Apply a first-order high-pass filter with a roll-off of -6dB/octave.',
+                            value=True,
+                            interactible=True)
+                        highpass_filter_cutoff_frequency_hz = gr.Slider(
+                                step=1,
+                                minimum=1,
+                                scale=0,
+                                value=50,
+                                maximum=1000, label='Cutoff Frequency', info='The cutoff frequency will be attenuated by -3dB and lower frequencies will be attenuated by a further -6dB per octave.',
+                                interactible=True)
+                    with gr.Column():
+                        compressor = gr.Checkbox(
+                            label="Enable compressor.",
+                            info='A dynamic range compressor, used to reduce the volume of loud sounds and “compress” the loudness of the signal.',
+                            value=True,
+                            interactible=True
+                        )
+                        compressor_threshold_db = gr.Slider(
+                                step=1,
+                                minimum=-100,
+                                scale=0,
+                                value=-15,
+                                maximum=-1, label='Threshold', info='The threshold in db above which any signal will begin being compressed.',
+                                interactible=True)
+                        compressor_ratio = gr.Slider(
+                                step=1,
+                                minimum=1,
+                                scale=0,
+                                value=4,
+                                maximum=16, label='Ratio', info='How aggressively the compressor compresses sound above the threshold, higher values are more aggressive.',
+                                interactible=True)
+
 
                 gr.Markdown('### Audio Output Format')
-                output_format = gr.Dropdown(['mp3', 'wav'], value='mp3', label='Output file type', info='mp3: small file size, decent quality. wav: Large file size, best quality')
+                output_format = gr.Dropdown(['wav', 'flac', 'mp3'], value='mp3', label='Output file type', info='mp3: small file size, decent quality. wav: Large file size, best quality')
 
             with gr.Row():
                 clear_btn = gr.ClearButton(value='Clear', components=[song_input, rvc_model, keep_files, local_file])
@@ -235,12 +308,12 @@ if __name__ == '__main__':
                                inputs=[song_input, rvc_model, pitch, keep_files, is_webui, main_gain, backup_gain,
                                        inst_gain, index_rate, filter_radius, rms_mix_rate, f0_method, crepe_hop_length,
                                        protect, pitch_all, reverb_rm_size, reverb_wet, reverb_dry, reverb_damping,
-                                       output_format],
+                                       output_format, f0_autotune, f0_min, f0_max, highpass_filter, highpass_filter_cutoff_frequency_hz, compressor, compressor_threshold_db, compressor_ratio],
                                outputs=[ai_cover])
-            clear_btn.click(lambda: [0, 0, 0, 0, 0.5, 3, 0.25, 0.33, 'rmvpe', 128, 0, 0.15, 0.2, 0.8, 0.7, 'mp3', None],
+            clear_btn.click(lambda: [0, 0, 0, 0, 0.5, 3, 0.25, 0.33, 'rmvpe', 128, 0, 0.15, 0.2, 0.8, 0.7, 'mp3', None, False, 50, 1100, True, 50, True, -15, 4],
                             outputs=[pitch, main_gain, backup_gain, inst_gain, index_rate, filter_radius, rms_mix_rate,
                                      protect, f0_method, crepe_hop_length, pitch_all, reverb_rm_size, reverb_wet,
-                                     reverb_dry, reverb_damping, output_format, ai_cover])
+                                     reverb_dry, reverb_damping, output_format, ai_cover, f0_autotune, f0_min, f0_max, highpass_filter, highpass_filter_cutoff_frequency_hz, compressor, compressor_threshold_db, compressor_ratio])
 
         # Download tab
         with gr.Tab('Download model'):
