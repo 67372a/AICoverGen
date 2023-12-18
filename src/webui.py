@@ -166,6 +166,7 @@ if __name__ == '__main__':
     parser.add_argument("--listen", action="store_true", default=False, help="Make the WebUI reachable from your local network.")
     parser.add_argument('--listen-host', type=str, help='The hostname that the server will use.')
     parser.add_argument('--listen-port', type=int, help='The listening port that the server will use.')
+    parser.add_argument('--device', type=str, help='The device to use (i.e. cuda, cuda:0, cpu, etc).')
     args = parser.parse_args()
 
     voice_models = get_current_models(rvc_models_dir)
@@ -200,6 +201,18 @@ if __name__ == '__main__':
                         pitch_all = gr.Slider(-12, 12, value=0, step=1, label='Overall Pitch Change', info='Changes pitch/key of vocals and instrumentals together. Altering this slightly reduces sound quality. (Semitones)')
                     show_file_upload_button.click(swap_visibility, outputs=[file_upload_col, yt_link_col, song_input, local_file])
                     show_yt_link_button.click(swap_visibility, outputs=[yt_link_col, file_upload_col, song_input, local_file])
+                    
+            with gr.Accordion('Stem Extraction options', open=False):
+                with gr.Row():
+                    with gr.Column():
+                        instrumentals_model = gr.Dropdown(['UVR-MDX-NET-Voc_FT.onnx'], value='UVR-MDX-NET-Voc_FT.onnx', label='Vocal / Instrument Extraction Model', info='', interactive=False)
+                        instrumentals_model_denoise = gr.Checkbox(label='Denoise', info='', value=True, interactive=True)
+                    with gr.Column():
+                        backup_vocals_model = gr.Dropdown(['UVR_MDXNET_KARA_2.onnx'], value='UVR_MDXNET_KARA_2.onnx', label='Main Vocal / Backup Vocals Extraction Model', info='', interactive=False)
+                        backup_vocals_model_denoise = gr.Checkbox(label='Denoise', info='', value=True, interactive=True)
+                    with gr.Column():
+                        dereverb_model = gr.Dropdown(['Reverb_HQ_By_FoxJoy.onnx'], value='Reverb_HQ_By_FoxJoy.onnx', label='DeReverb Model', info='', interactive=False)
+                        dereverb_model_denoise = gr.Checkbox(label='Denoise', info='', value=True, interactive=True)
 
             with gr.Accordion('Voice conversion options', open=False):
                 with gr.Row():
@@ -282,7 +295,7 @@ if __name__ == '__main__':
                                 step=1,
                                 minimum=-100,
                                 scale=0,
-                                value=-15,
+                                value=-14,
                                 maximum=-1, label='Threshold', info='The threshold in db above which any signal will begin being compressed.',
                                 interactible=True)
                         compressor_ratio = gr.Slider(
@@ -308,9 +321,10 @@ if __name__ == '__main__':
                                inputs=[song_input, rvc_model, pitch, keep_files, is_webui, main_gain, backup_gain,
                                        inst_gain, index_rate, filter_radius, rms_mix_rate, f0_method, crepe_hop_length,
                                        protect, pitch_all, reverb_rm_size, reverb_wet, reverb_dry, reverb_damping,
-                                       output_format, f0_autotune, f0_min, f0_max, highpass_filter, highpass_filter_cutoff_frequency_hz, compressor, compressor_threshold_db, compressor_ratio],
+                                       output_format, f0_autotune, f0_min, f0_max, highpass_filter, highpass_filter_cutoff_frequency_hz, compressor, compressor_threshold_db, compressor_ratio,
+                                       instrumentals_model, instrumentals_model_denoise, backup_vocals_model, backup_vocals_model_denoise, dereverb_model, dereverb_model_denoise],
                                outputs=[ai_cover])
-            clear_btn.click(lambda: [0, 0, 0, 0, 0.5, 3, 0.25, 0.33, 'rmvpe', 128, 0, 0.15, 0.2, 0.8, 0.7, 'mp3', None, False, 50, 1100, True, 50, True, -15, 4],
+            clear_btn.click(lambda: [0, 0, 0, 0, 0.5, 3, 0.25, 0.33, 'rmvpe', 128, 0, 0.15, 0.2, 0.8, 0.7, 'mp3', None, False, 50, 1100, True, 50, True, -14, 4],
                             outputs=[pitch, main_gain, backup_gain, inst_gain, index_rate, filter_radius, rms_mix_rate,
                                      protect, f0_method, crepe_hop_length, pitch_all, reverb_rm_size, reverb_wet,
                                      reverb_dry, reverb_damping, output_format, ai_cover, f0_autotune, f0_min, f0_max, highpass_filter, highpass_filter_cutoff_frequency_hz, compressor, compressor_threshold_db, compressor_ratio])

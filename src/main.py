@@ -163,7 +163,10 @@ def display_progress(message, percent, is_webui, progress=None):
         print(message)
 
 
-def preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type, progress=None):
+def preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type, progress=None, 
+        instrumentals_model='UVR-MDX-NET-Voc_FT.onnx', instrumentals_model_denoise=True, 
+        backup_vocals_model='UVR_MDXNET_KARA_2.onnx', backup_vocals_model_denoise=True, 
+        dereverb_model='Reverb_HQ_By_FoxJoy.onnx', dereverb_model_denoise=True):
     keep_orig = False
     if input_type == 'yt':
         display_progress('[~] Downloading song...', 0, is_webui, progress)
@@ -179,13 +182,13 @@ def preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type,
     orig_song_path = convert_to_stereo(orig_song_path)
 
     display_progress('[~] Separating Vocals from Instrumental...', 0.1, is_webui, progress)
-    vocals_path, instrumentals_path = run_mdx(mdx_model_params, song_output_dir, os.path.join(mdxnet_models_dir, 'UVR-MDX-NET-Voc_FT.onnx'), orig_song_path, denoise=True, keep_orig=keep_orig)
+    vocals_path, instrumentals_path = run_mdx(mdx_model_params, song_output_dir, os.path.join(mdxnet_models_dir, instrumentals_model), orig_song_path, denoise=instrumentals_model_denoise, keep_orig=keep_orig)
 
     display_progress('[~] Separating Main Vocals from Backup Vocals...', 0.2, is_webui, progress)
-    backup_vocals_path, main_vocals_path = run_mdx(mdx_model_params, song_output_dir, os.path.join(mdxnet_models_dir, 'UVR_MDXNET_KARA_2.onnx'), vocals_path, suffix='Backup', invert_suffix='Main', denoise=True)
+    backup_vocals_path, main_vocals_path = run_mdx(mdx_model_params, song_output_dir, os.path.join(mdxnet_models_dir, backup_vocals_model), vocals_path, suffix='Backup', invert_suffix='Main', denoise=backup_vocals_model_denoise)
 
     display_progress('[~] Applying DeReverb to Vocals...', 0.3, is_webui, progress)
-    _, main_vocals_dereverb_path = run_mdx(mdx_model_params, song_output_dir, os.path.join(mdxnet_models_dir, 'Reverb_HQ_By_FoxJoy.onnx'), main_vocals_path, invert_suffix='DeReverb', exclude_main=True, denoise=True)
+    _, main_vocals_dereverb_path = run_mdx(mdx_model_params, song_output_dir, os.path.join(mdxnet_models_dir, dereverb_model), main_vocals_path, invert_suffix='DeReverb', exclude_main=True, denoise=dereverb_model_denoise)
 
     return orig_song_path, vocals_path, instrumentals_path, main_vocals_path, backup_vocals_path, main_vocals_dereverb_path
 
@@ -203,7 +206,7 @@ def voice_change(voice_model, vocals_path, output_path, pitch_change, f0_method,
     gc.collect()
 
 
-def add_audio_effects(audio_path, reverb_rm_size, reverb_wet, reverb_dry, reverb_damping, highpass_filter=True, highpass_filter_cutoff_frequency_hz=50, compressor=True, compressor_threshold_db=-15, compressor_ratio=4):
+def add_audio_effects(audio_path, reverb_rm_size, reverb_wet, reverb_dry, reverb_damping, highpass_filter=True, highpass_filter_cutoff_frequency_hz=50, compressor=True, compressor_threshold_db=-14, compressor_ratio=4):
     output_path = f'{os.path.splitext(audio_path)[0]}_mixed.wav'
     
     # Initialize audio effects plugins
@@ -244,7 +247,9 @@ def song_cover_pipeline(song_input, voice_model, pitch_change, keep_files,
                         rms_mix_rate=0.25, f0_method='rmvpe', crepe_hop_length=128, protect=0.33, pitch_change_all=0,
                         reverb_rm_size=0.15, reverb_wet=0.2, reverb_dry=0.8, reverb_damping=0.7, output_format='mp3', 
                         f0_autotune=False, f0_min=50, f0_max=1100, highpass_filter=True, highpass_filter_cutoff_frequency_hz=50, 
-                        compressor=True, compressor_threshold_db=-15, compressor_ratio=4, progress=gr.Progress()):
+                        compressor=True, compressor_threshold_db=-15, compressor_ratio=4, instrumentals_model='UVR-MDX-NET-Voc_FT.onnx', 
+                        instrumentals_model_denoise=True, backup_vocals_model='UVR_MDXNET_KARA_2.onnx', backup_vocals_model_denoise=True, 
+                        dereverb_model='Reverb_HQ_By_FoxJoy.onnx', dereverb_model_denoise=True, progress=gr.Progress()):
     try:
         if not song_input or not voice_model:
             raise_exception('Ensure that the song input field and voice model field is filled.', is_webui)
@@ -277,7 +282,8 @@ def song_cover_pipeline(song_input, voice_model, pitch_change, keep_files,
 
         if not os.path.exists(song_dir):
             os.makedirs(song_dir)
-            orig_song_path, vocals_path, instrumentals_path, main_vocals_path, backup_vocals_path, main_vocals_dereverb_path = preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type, progress)
+            orig_song_path, vocals_path, instrumentals_path, main_vocals_path, backup_vocals_path, main_vocals_dereverb_path = preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type, progress,
+                instrumentals_model, instrumentals_model_denoise, backup_vocals_model, backup_vocals_model_denoise, dereverb_model, dereverb_model_denoise)
 
         else:
             vocals_path, main_vocals_path = None, None
@@ -285,12 +291,18 @@ def song_cover_pipeline(song_input, voice_model, pitch_change, keep_files,
 
             # if any of the audio files aren't available or keep intermediate files, rerun preprocess
             if any(path is None for path in paths) or keep_files:
-                orig_song_path, vocals_path, instrumentals_path, main_vocals_path, backup_vocals_path, main_vocals_dereverb_path = preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type, progress)
+                orig_song_path, vocals_path, instrumentals_path, main_vocals_path, backup_vocals_path, main_vocals_dereverb_path = preprocess_song(song_input, mdx_model_params, song_id, is_webui, input_type, progress,
+                    instrumentals_model, instrumentals_model_denoise, backup_vocals_model, backup_vocals_model_denoise, dereverb_model, dereverb_model_denoise)
             else:
                 orig_song_path, instrumentals_path, main_vocals_dereverb_path, backup_vocals_path = paths
+                
+        # Set to defaults for rmvpe to prevent issues
+        if f0_method == 'rmvpe':
+            f0_min = 50
+            f0_max = 1100
 
         pitch_change = pitch_change * 12 + pitch_change_all
-        ai_vocals_path = os.path.join(song_dir, f'{os.path.splitext(os.path.basename(orig_song_path))[0]}_{voice_model}_p{pitch_change}_i{index_rate}_fr{filter_radius}_rms{rms_mix_rate}_pro{protect}_{f0_method}_at{f0_autotune}{"" if f0_method != "mangio-crepe" else f"_chl{crepe_hop_length}"}{"" if f0_method == "rmvpe" else f"_minp{f0_min}_maxp{f0_max}"}.wav')
+        ai_vocals_path = os.path.join(song_dir, f'{os.path.splitext(os.path.basename(orig_song_path))[0]}_{voice_model}_p{pitch_change}_i{index_rate}_fr{filter_radius}_rms{rms_mix_rate}_pro{protect}_{f0_method}_at{f0_autotune}_dni{instrumentals_model_denoise}_dnb{backup_vocals_model_denoise}_dndv{dereverb_model_denoise}{"" if f0_method != "mangio-crepe" else f"_chl{crepe_hop_length}"}{"" if f0_method == "rmvpe" else f"_minp{f0_min}_maxp{f0_max}"}.wav')
         ai_cover_path = os.path.join(song_dir, f'{os.path.splitext(os.path.basename(orig_song_path))[0]} ({voice_model} Ver).{output_format}')
 
         if not os.path.exists(ai_vocals_path):
@@ -352,6 +364,14 @@ if __name__ == '__main__':
     rvc_dirname = args.rvc_dirname
     if not os.path.exists(os.path.join(rvc_models_dir, rvc_dirname)):
         raise Exception(f'The folder {os.path.join(rvc_models_dir, rvc_dirname)} does not exist.')
+        
+    # Set to defaults for rmvpe to prevent issues
+    if f0_method == 'rmvpe':
+        f0_min = 50
+        f0_max = 1100
+    else:
+        f0_min = args.minimum_pitch
+        f0_max = args.maximum_pitch
 
     cover_path = song_cover_pipeline(args.song_input, rvc_dirname, args.pitch_change, args.keep_files,
                                      main_gain=args.main_vol, backup_gain=args.backup_vol, inst_gain=args.inst_vol,
@@ -363,5 +383,5 @@ if __name__ == '__main__':
                                      reverb_dry=args.reverb_dryness, reverb_damping=args.reverb_damping,
                                      output_format=args.output_format, f0_autotune=args.autotune, f0_min=args.minimum_pitch, 
                                      f0_max=args.maximum_pitch, highpass_filter=True, highpass_filter_cutoff_frequency_hz=50, 
-                                     compressor=True, compressor_threshold_db=-15, compressor_ratio=4)
+                                     compressor=True, compressor_threshold_db=-14, compressor_ratio=4)
     print(f'[+] Cover generated at {cover_path}')
