@@ -60,13 +60,13 @@ class MDX:
     DEFAULT_CHUNK_SIZE = 0 * DEFAULT_SR
     DEFAULT_MARGIN_SIZE = 1 * DEFAULT_SR
 
-    DEFAULT_PROCESSOR = 0
+    DEFAULT_DEVICE = 'cpu'
 
-    def __init__(self, model_path: str, params: MDXModel, processor=DEFAULT_PROCESSOR):
+    def __init__(self, model_path: str, params: MDXModel, device=DEFAULT_DEVICE):
 
         # Set the device and the provider (CPU or CUDA)
-        self.device = torch.device(f'cuda:{processor}') if processor >= 0 else torch.device('cpu')
-        self.provider = ['CUDAExecutionProvider'] if processor >= 0 else ['CPUExecutionProvider']
+        self.device = device
+        self.provider = ['CUDAExecutionProvider'] if device != 'cpu' else ['CPUExecutionProvider']
 
         self.model = params
 
@@ -235,8 +235,9 @@ class MDX:
         return self.segment(processed_batches, True, chunk)
 
 
-def run_mdx(model_params, output_dir, model_path, filename, exclude_main=False, exclude_inversion=False, suffix=None, invert_suffix=None, denoise=False, keep_orig=True, m_threads=2):
-    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+def run_mdx(model_params, output_dir, model_path, filename, exclude_main=False, exclude_inversion=False, 
+            suffix=None, invert_suffix=None, denoise=False, keep_orig=True, m_threads=2, 
+            device='cpu', normalize=True):
 
     device_properties = torch.cuda.get_device_properties(device)
     vram_gb = device_properties.total_memory / 1024**3
@@ -253,18 +254,20 @@ def run_mdx(model_params, output_dir, model_path, filename, exclude_main=False, 
         compensation=mp["compensate"]
     )
 
-    mdx_sess = MDX(model_path, model)
+    mdx_sess = MDX(model_path, model, device)
     wave, sr = librosa.load(filename, mono=False, sr=44100)
     # normalizing input wave gives better output
-    peak = max(np.max(wave), abs(np.min(wave)))
-    wave /= peak
+    if normalize:
+        peak = max(np.max(wave), abs(np.min(wave)))
+        wave /= peak
     if denoise:
         wave_processed = -(mdx_sess.process_wave(-wave, m_threads)) + (mdx_sess.process_wave(wave, m_threads))
         wave_processed *= 0.5
     else:
         wave_processed = mdx_sess.process_wave(wave, m_threads)
     # return to previous peak
-    wave_processed *= peak
+    if normalize:    
+        wave_processed *= peak
     stem_name = model.stem_name if suffix is None else suffix
 
     main_filepath = None

@@ -5,6 +5,8 @@ import urllib.request
 import zipfile
 from argparse import ArgumentParser
 
+import torch
+
 import gradio as gr
 
 from main import song_cover_pipeline
@@ -158,6 +160,11 @@ def show_pitch_slider(pitch_detection_algo):
         return gr.update(visible=True)
     else:
         return gr.update(visible=False)
+    
+def deviceOptions():
+    devices = [f'cuda:{i}' for i in range(torch.cuda.device_count())]
+    devices.append('cpu')
+    return devices
 
 
 if __name__ == '__main__':
@@ -166,7 +173,6 @@ if __name__ == '__main__':
     parser.add_argument("--listen", action="store_true", default=False, help="Make the WebUI reachable from your local network.")
     parser.add_argument('--listen-host', type=str, help='The hostname that the server will use.')
     parser.add_argument('--listen-port', type=int, help='The listening port that the server will use.')
-    parser.add_argument('--device', type=str, help='The device to use (i.e. cuda, cuda:0, cpu, etc).')
     args = parser.parse_args()
 
     voice_models = get_current_models(rvc_models_dir)
@@ -182,6 +188,9 @@ if __name__ == '__main__':
 
             with gr.Accordion('Main Options'):
                 with gr.Row():
+                    with gr.Column(visible=False):
+                        device = gr.Dropdown(deviceOptions(), value='cuda:0', label='Device', info='Note: Incomplete, still finding some things are not going to the set device.', interactive=True)
+
                     with gr.Column():
                         rvc_model = gr.Dropdown(voice_models, label='Voice Models', info='Models folder "AICoverGen --> rvc_models". After new models are added into this folder, click the refresh button')
                         ref_btn = gr.Button('Refresh Models 🔁', variant='primary')
@@ -206,13 +215,16 @@ if __name__ == '__main__':
                 with gr.Row():
                     with gr.Column():
                         instrumentals_model = gr.Dropdown(['UVR-MDX-NET-Voc_FT.onnx'], value='UVR-MDX-NET-Voc_FT.onnx', label='Vocal / Instrument Extraction Model', info='', interactive=False)
-                        instrumentals_model_denoise = gr.Checkbox(label='Denoise', info='', value=True, interactive=True)
+                        instrumentals_denoise = gr.Checkbox(label='Denoise', info='', value=True, interactive=True)
+                        instrumentals_normalize = gr.Checkbox(label='Normalize', info='', value=True, interactive=True)
                     with gr.Column():
                         backup_vocals_model = gr.Dropdown(['UVR_MDXNET_KARA_2.onnx'], value='UVR_MDXNET_KARA_2.onnx', label='Main Vocal / Backup Vocals Extraction Model', info='', interactive=False)
-                        backup_vocals_model_denoise = gr.Checkbox(label='Denoise', info='', value=True, interactive=True)
+                        backup_vocals_denoise = gr.Checkbox(label='Denoise', info='', value=True, interactive=True)
+                        backup_vocals_normalize = gr.Checkbox(label='Normalize', info='', value=True, interactive=True)
                     with gr.Column():
                         dereverb_model = gr.Dropdown(['Reverb_HQ_By_FoxJoy.onnx'], value='Reverb_HQ_By_FoxJoy.onnx', label='DeReverb Model', info='', interactive=False)
-                        dereverb_model_denoise = gr.Checkbox(label='Denoise', info='', value=True, interactive=True)
+                        dereverb_denoise = gr.Checkbox(label='Denoise', info='', value=True, interactive=True)
+                        dereverb_normalize = gr.Checkbox(label='Normalize', info='', value=True, interactive=True)
 
             with gr.Accordion('Voice conversion options', open=False):
                 with gr.Row():
@@ -258,9 +270,9 @@ if __name__ == '__main__':
             with gr.Accordion('Audio mixing options', open=False):
                 gr.Markdown('### Volume Change (decibels)')
                 with gr.Row():
-                    main_gain = gr.Slider(-20, 20, value=0, step=1, label='Main Vocals')
-                    backup_gain = gr.Slider(-20, 20, value=0, step=1, label='Backup Vocals')
-                    inst_gain = gr.Slider(-20, 20, value=0, step=1, label='Music')
+                    main_gain = gr.Slider(-20, 20, value=-4, step=1, label='Main Vocals')
+                    backup_gain = gr.Slider(-20, 20, value=-6, step=1, label='Backup Vocals')
+                    inst_gain = gr.Slider(-20, 20, value=-7, step=1, label='Music')
 
                 gr.Markdown('### Reverb Control on AI Vocals')
                 with gr.Row():
@@ -317,17 +329,24 @@ if __name__ == '__main__':
 
             ref_btn.click(update_models_list, None, outputs=rvc_model)
             is_webui = gr.Number(value=1, visible=False)
+
             generate_btn.click(song_cover_pipeline,
                                inputs=[song_input, rvc_model, pitch, keep_files, is_webui, main_gain, backup_gain,
                                        inst_gain, index_rate, filter_radius, rms_mix_rate, f0_method, crepe_hop_length,
                                        protect, pitch_all, reverb_rm_size, reverb_wet, reverb_dry, reverb_damping,
-                                       output_format, f0_autotune, f0_min, f0_max, highpass_filter, highpass_filter_cutoff_frequency_hz, compressor, compressor_threshold_db, compressor_ratio,
-                                       instrumentals_model, instrumentals_model_denoise, backup_vocals_model, backup_vocals_model_denoise, dereverb_model, dereverb_model_denoise],
+                                       output_format, f0_autotune, f0_min, f0_max, highpass_filter, highpass_filter_cutoff_frequency_hz, 
+                                       compressor, compressor_threshold_db, compressor_ratio, instrumentals_model, instrumentals_denoise, 
+                                       backup_vocals_model, backup_vocals_denoise, dereverb_model, dereverb_denoise, device,
+                                       instrumentals_normalize, backup_vocals_normalize, dereverb_normalize],
                                outputs=[ai_cover])
-            clear_btn.click(lambda: [0, 0, 0, 0, 0.5, 3, 0.25, 0.33, 'rmvpe', 128, 0, 0.15, 0.2, 0.8, 0.7, 'mp3', None, False, 50, 1100, True, 50, True, -14, 4],
+            clear_btn.click(lambda: [0, 0, 0, 0, 0.5, 3, 0.25, 0.33, 'rmvpe', 128, 0, 0.15, 0.2, 0.8, 0.7, 'mp3', None, False, 50, 1100, True, 50, True, 
+                                     -14, 4, 'UVR-MDX-NET-Voc_FT.onnx', True, 'UVR_MDXNET_KARA_2.onnx', True, 'Reverb_HQ_By_FoxJoy.onnx', 'cpu', True, True, True],
                             outputs=[pitch, main_gain, backup_gain, inst_gain, index_rate, filter_radius, rms_mix_rate,
                                      protect, f0_method, crepe_hop_length, pitch_all, reverb_rm_size, reverb_wet,
-                                     reverb_dry, reverb_damping, output_format, ai_cover, f0_autotune, f0_min, f0_max, highpass_filter, highpass_filter_cutoff_frequency_hz, compressor, compressor_threshold_db, compressor_ratio])
+                                     reverb_dry, reverb_damping, output_format, ai_cover, f0_autotune, f0_min, f0_max, highpass_filter, highpass_filter_cutoff_frequency_hz, 
+                                     compressor, compressor_threshold_db, compressor_ratio, instrumentals_model, instrumentals_denoise, 
+                                       backup_vocals_model, backup_vocals_denoise, dereverb_model, dereverb_denoise, device,
+                                       instrumentals_normalize, backup_vocals_normalize, dereverb_normalize])
 
         # Download tab
         with gr.Tab('Download model'):

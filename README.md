@@ -7,6 +7,7 @@
 - Updating a lot of dependencies to newer versions, no breaking changes observed
 - run.bat for convenience
 - Ability to disable denoise for models.
+- Ability to disable normalization for models.
 
 ## Fork Enhancements Under Consideration
 - Ability to select extraction models used and change settings related to them
